@@ -17,42 +17,39 @@ Evaluating Convolutional Neural Networks (CNNs) performance in Audio Anomaly Det
     - No data augmentation
     - Audio augmentation only
     - Spectrogram Augmentation only
-    - audio augmentation -> spectrogram augmentation 
-- Train multiple pre-trained computer vision models using the different training dataset grouping to discern between 3 classes that have been split based on their spectral morphology.
+    - Audio augmentation then Spectrogram augmentation 
+- Train multiple pre-trained computer vision models using the different training dataset grouping to discern between 3 classes [resonant, damp, common] that have been split based on their spectral morphology.
 - Validate their training per epoch
 - Evaluate and compare their performance based on the following metrics:
-    - Recall
+    - Accuracy
     - Precision
-    - Inference Latency
-- Generate a confusion matrix to which classes the models get confused
-
+    - Recall
+    - F-1 Score
 
 ## 4. Dataset Plan
 - Source: ESC-50, Youtube
 - Classes:  
     - **Resonant** [Glass Breaking, Can Opening]
     - **Damp** [Door Knock, Footsteps]  
-    - **Interference** [Hen, Engine, Rooster] 
+    - **Common** [Hen, Engine, Rooster] 
 - Acquisition: 
     - Download ESC-50 dataset from github
     - Find rain and cricket sounds from Youtube
 
 ## 5. Technical Approach
 - Architecture sketch
-- Models (Pre-trained with ImageNet): ResNet18, Swin Transformer Tiny, MobileNetV2, ShuffleNetV2, EfficientNetB0
+- Models (Pre-trained with ImageNet): MobileNetV3, RegNet MobileNetV2, ShuffleNetV2, EfficientNetB0
 - Framework: PyTorch
 - Hardware: NVIDIA GeForceRTX 4060 Laptop GPU, NVIDIA GeForceRTX 3050Ti Laptop GPU
 
 ## 6. Expected Challenges & Mitigations
-Challenge 1: Environmental Signal Masking: Continuous background interference (Class 2) may spectrally overlap with the target transient signals (Classes 0 and 1), potentially causing the model to miss short-duration impulses.
-
-- Mitigation: Robustness Stress-Testing. The evaluation phase will subject the trained models to high-intensity localized noise profiles (Kuliglig engine rumble and Yero rain noise) at varying Signal-to-Noise Ratios (SNR). This quantifies the model's ability to isolate transient features even when the noise floor is significantly elevated.
-
-Challenge 2: Data Scarcity: The filtered subset of proxy classes results in a limited dataset (~240 samples), which risks overfitting
-
-- Mitigation: Data Augmentation, particularly 2 variations which are:
+Challenge 1: Data Scarcity  
+- Mitigation: Data Augmentation by using 2 Data augmentation groups and utilizing pre-trained models
     - Audio-Domain: Waveform Gaussian noise injection and time-shifting to simulate sensor variability.
 
     - Feature-Domain: SpecAugment (Frequency and Time Masking) to force the model to learn varying spectral features
 
     - Transfer Learning: Utilization of ImageNet-pretrained weights with frozen backbones, ensuring the model relies on robust, pre-learned feature extractors rather than learning from scratch on a small dataset.
+
+Challenge 2: Multiple Models need to be trained  
+- Mitigation: Utilzie CUDA that is present in both of the researchers laptop, train concurrently the models 
