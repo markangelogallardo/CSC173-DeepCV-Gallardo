@@ -1,5 +1,5 @@
 
-# [Project Title: e.g., Real-Time Object Detection for Waste Sorting]
+# Evaluating Convolutional Neural Networks (CNNs) performance in Audio Anomaly Detection in High-Noise Agricultural Environments  
 **CSC173 Intelligent Systems Final Project**  
 *Mindanao State University - Iligan Institute of Technology*  
 **Student:** [Your Full Name], [Student ID]  
@@ -45,14 +45,16 @@ The
 ![Problem Demo](images/problem_example.gif) [web:41]
 
 ## Related Work
-- [Paper 1: YOLOv8 for real-time detection [1]]
-- [Paper 2: Transfer learning on custom datasets [2]]
-- [Gap: Your unique approach, e.g., Mindanao-specific waste classes] [web:25]
+- [EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks ](https://arxiv.org/abs/1905.11946)
+- [Designing Network Design Spaces](https://arxiv.org/abs/2003.13678)
+- [MobileNetV2: Inverted Residuals and Linear Bottlenecks](https://arxiv.org/abs/1801.04381)
+- [Searching for MobileNetV3](https://arxiv.org/abs/1905.02244)
+- [ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design](https://arxiv.org/abs/1807.11164)
 
 ## Methodology
 ### Dataset
 - Source: ESC-50 dataset
-- Split: 70/15/15 train/val/test
+- Split: 5-fold Split 
 - Preprocessing: Augmentation, resizing to 126x126 (to be verified) [web:41]
 
 ### Architecture
