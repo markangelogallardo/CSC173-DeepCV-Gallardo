@@ -1,250 +1,197 @@
 import os
-import glob
-import librosa
-import numpy as np
-import soundfile as sf
 import pandas as pd
+import soundfile as sf
+import numpy as np
+import librosa
+import torch
+import torchaudio.transforms as T
 from tqdm import tqdm
 from audiomentations import Compose, TimeStretch, PitchShift, AddBackgroundNoise
-import torchaudio.transforms as T
-from typing import Literal, get_args, get_origin
-from sys import _getframe
-# --- 1. CONFIGURATION ---
 
-# !!! IMPORTANT: VERIFY AND ADJUST THESE PATHS !!!
-# ----------------------------------------------------------------------------------
-# ----------------------------------------------------------------------------------
-TYPES = Literal["audio", "spectrogram", "hybrid"]
-AUDIO_SUFFIX = ["rain_bg", "crickets_bg"]
-SPEC_SUFFIX = ["time_mask", "freq_mask"]
-
-class AugmentData():
-    def __init__(self, input_audio_dir, input_metadata_path, output_dir, 
-                 output_metadata_path, output_metadata_filename, rain_bg_path, crickets_bg_path
-                 ,sample_rate=44100, aug_type : TYPES = "audio"):
-        self.input_audio_dir = input_audio_dir
-        self.input_metadata_path = input_metadata_path
+class AudioPipeline:
+    def __init__(self, raw_audio_dir, metadata_path, output_dir, rain_path, crickets_path):
+        self.raw_audio_dir = raw_audio_dir
+        self.metadata = pd.read_csv(metadata_path)
         self.output_dir = output_dir
-        self.output_metadata_path = output_metadata_path
-        self.output_metadata_filename = output_metadata_filename
-        self.sample_rate = sample_rate
-        self.rain_bg_path = rain_bg_path
-        self.crickets_bg_path = crickets_bg_path
-        self.aug_type = aug_type
+        self.metadata_dir = os.path.dirname(metadata_path)
         
+        self.rain_bg_path = rain_path
+        self.crickets_bg_path = crickets_path
 
-
-    def create_audio_augset(self):
+    def generate_augmented_audio_dataset(self):
         """
-        Applies augmentations and saves the results into flat, augmentation-specific folders.
-        Relies on the metadata to define the file set.
+        Step 1: 
+        - Takes Raw Audio.
+        - Applies Rain/Crickets augmentation.
+        - Saves .wav files to `[self.output_dir]/audio_aug`.
+        - Generates and saves new metadata to `[self.output_dir]/meta_audio_aug.csv`.
         """
+        
         CricketsAug = Compose([
             TimeStretch(min_rate=0.7, max_rate=1.25, p=0.5),
-            PitchShift(min_semitones=-5.0, max_semitones=5.0, p=0.5),\
+            PitchShift(min_semitones=-5.0, max_semitones=5.0, p=0.5),
             AddBackgroundNoise(
                 sounds_path=self.crickets_bg_path,
                 min_snr_db=3.0, max_snr_db=25.0, p=1.0,
             ),
         ])
+        
         RainAug = Compose([
             TimeStretch(min_rate=0.7, max_rate=1.25, p=0.5),
-            PitchShift(min_semitones=-5.0, max_semitones=5.0, p=0.5),\
+            PitchShift(min_semitones=-5.0, max_semitones=5.0, p=0.5),
             AddBackgroundNoise(
                 sounds_path=self.rain_bg_path,
                 min_snr_db=3.0, max_snr_db=25.0, p=1.0, 
             ),
         ])
+
         AUDIO_SET = {
             "rain_bg": RainAug,
             "crickets_bg": CricketsAug
         }
-        # Load the metadata blueprint to get the list of files to process
-        try:
-            df_metadata = pd.read_csv(self.input_metadata_path)
-        except FileNotFoundError:
-            print(f"ERROR: Metadata file not found at {self.input_metadata_path}. Cannot proceed.")
-            return
 
-        # Get the list of filenames to process
-        filenames_to_process = df_metadata['filename'].tolist()
+        output_audio_dir = os.path.join(self.output_dir, "audio_aug")
+        output_meta_path = os.path.join(self.metadata_dir, "audio_aug.csv")
         
-        if not filenames_to_process:
-            print("ERROR: Metadata is empty or corrupt. No files to process.")
-            return
-        
-        output_audio_dir = os.path.join(self.output_dir, self.aug_type)
         os.makedirs(output_audio_dir, exist_ok=True)
-        for aug_name, transform in AUDIO_SET.items():
-            print(f"\n--- Generating Audio Augmentation Set: {aug_name} ---")
-            # Use the file list from metadata for reliable processing
-            for filename in tqdm(filenames_to_process, desc=f"Augmenting {aug_name}"):
-                audio_path = os.path.join(self.input_audio_dir, filename)
-                base_name, ext = os.path.splitext(filename)
+
+        new_metadata_rows = []
+
+        for index, row in tqdm(self.metadata.iterrows(), total=len(self.metadata), desc="Processing Audio Augmentations"):
+            original_filename = row['filename']
+            audio_path = os.path.join(self.raw_audio_dir, original_filename)
+            
+            try:
+                samples, sr = sf.read(audio_path, dtype='float32')
+            except Exception as e:
+                print(f"Error reading {original_filename}: {e}")
+                continue
+
+            for aug_name, transform in AUDIO_SET.items():
+                
+                base_name, ext = os.path.splitext(original_filename)
                 new_filename = f"{base_name}_{aug_name}{ext}"
                 output_path = os.path.join(output_audio_dir, new_filename)
 
-                # Skip if already processed
-                if os.path.exists(output_path):
-                    continue
+                if not os.path.exists(output_path):
+                    try:
+                        augmented_samples = transform(samples=samples, sample_rate=sr)
+                        sf.write(output_path, augmented_samples, sr)
+                    except Exception as e:
+                        print(f"Failed to augment {new_filename}: {e}")
+                        continue
                 
-                try:
-                    # Load Audio
-                    samples, sr = sf.read(audio_path, dtype='float32')
-                    
-                    # Apply Augmentation
-                    augmented_samples = transform(samples=samples, sample_rate=sr)
-                    
-                    # Save Augmented Audio (flat structure)
-                    sf.write(output_path, augmented_samples, sr)
-                    
-                except FileNotFoundError:
-                    print(f"\nWarning: Source audio file not found at {audio_path}. Skipping.")
-                except Exception as e:
-                    print(f"\nError processing {filename} in {aug_name}: {e}")
-                    return
-                    
-            print(f"  {aug_name} generation complete. Files saved to {self.output_dir}/")
+                new_row = row.copy()
+                new_row['filename'] = new_filename
+                new_row['source_filename'] = original_filename
+                new_row['augmentation_type'] = aug_name
+                
+                new_metadata_rows.append(new_row)
 
-    def create_spec_augset(self):
-        """
-        Applies augmentations and saves the results into flat, augmentation-specific folders.
-        Relies on the metadata to define the file set.
-        """
-        TimeMask = T.TimeMasking(time_mask_param=80)
-        FreqMask = T.FrequencyMasking(freq_mask_param=80)
-        # Map names to the defined augmentation pipelines
+        if new_metadata_rows:
+            df_aug_metadata = pd.DataFrame(new_metadata_rows)
+            df_aug_metadata.to_csv(output_meta_path, index=False)
+            print(f"\n Audio Augmentation Complete.")
+            print(f"   Audio saved to: {output_audio_dir}")
+            print(f"   Metadata saved to: {output_meta_path}")
+            return output_meta_path
+        else:
+            print("No metadata generated.")
+            return None
 
-        SPECTROGRAM_SET = {
-            "time_mask": TimeMask,
-            "freq_mask": FreqMask
+    def generate_spectrogram_dataset(self, input_metadata_path, input_audio_dir, output_subdir, spec_augs=[None]):
+        """
+        Step 2: Generic function to convert ANY audio folder to spectrograms (.npy).
+        
+        Args:
+            input_metadata_path: Path to CSV defining which files to process.
+            input_audio_dir: Where the source .wav files are located.
+            output_subdir: Folder name to save .npy files (e.g. 'log-mel_spectrograms/no_aug').
+            spec_augs: List of masking to apply. 
+                        - [None] = Just convert to Spectrogram (no mask).
+                        - ['time_mask', 'freq_mask'] = Apply masks before saving.
+        """
+        try:
+            df_metadata = pd.read_csv(input_metadata_path)
+        except FileNotFoundError:
+            print(f"ERROR: Metadata not found at {input_metadata_path}")
+            return None
+
+        output_spec_dir = os.path.join(self.output_dir, output_subdir)
+        os.makedirs(output_spec_dir, exist_ok=True)
+        
+        safe_name = output_subdir.replace("/", "_").replace("\\", "_")
+        output_meta_path = os.path.join(self.metadata_dir, f"{safe_name}.csv")
+
+        TRANSFORM_MAP = {
+            "time_mask": T.TimeMasking(time_mask_param=80),
+            "freq_mask": T.FrequencyMasking(freq_mask_param=80),
+            None: None 
         }
 
-        # Load the metadata blueprint to get the list of files to process
-        try:
-            df_metadata = pd.read_csv(self.input_metadata_path)
-        except FileNotFoundError:
-            print(f"ERROR: Metadata file not found at {self.input_metadata_path}. Cannot proceed.")
-            return
+        new_metadata_entries = []
 
-        # Get the list of filenames to process
-        filenames_to_process = df_metadata['filename'].tolist()
-        
-        if not filenames_to_process:
-            print("ERROR: Metadata is empty or corrupt. No files to process.")
-            return
-
-        for aug_name, transform in SPECTROGRAM_SET.items():
-            print(f"\n--- Generating Spectrogram Augmentation Set: {aug_name} ---")
+        for aug_name in spec_augs:
             
-            # Create the flat output directory for this set (e.g., data/aug_audio_flat/heavy_rain)
-            output_dir_set = os.path.join(self.output_dir, aug_name)
-            os.makedirs(output_dir_set, exist_ok=True)
+            label = aug_name if aug_name is not None else "plain"
+            print(f"\n--- Generating .npy Spectrograms ({label}) ---")
             
-            # Use the file list from metadata for reliable processing
-            for filename in tqdm(filenames_to_process, desc=f"Augmenting {aug_name}"):
+            transform = TRANSFORM_MAP.get(aug_name)
+
+            for _, row in tqdm(df_metadata.iterrows(), total=len(df_metadata), desc=f"Processing {label}"):
+                filename = row['filename']
+                audio_path = os.path.join(input_audio_dir, filename)
                 
-                audio_path = os.path.join(self.input_audio_dir, filename)
-                output_path = os.path.join(output_dir_set, filename)
-
-                # Skip if already processed
-                if os.path.exists(output_path):
-                    continue
+                base_name = os.path.splitext(filename)[0]
                 
-                try:
-                    # Load Audio
-                    samples, sr = sf.read(audio_path, dtype='float32')
-                    
-                    # Apply Augmentation
-                    augmented_samples = transform(samples=samples, sample_rate=sr)
-                    
-                    # Save Augmented Audio (flat structure)
-                    sf.write(output_path, augmented_samples, sr)
-                    
-                except FileNotFoundError:
-                    print(f"\nWarning: Source audio file not found at {audio_path}. Skipping.")
-                except Exception as e:
-                    print(f"\nError processing {filename} in {aug_name}: {e}")
-                    
-            print(f"  {aug_name} generation complete. Files saved to {output_dir_set}/")
-    
-    def create_hybrid_augset(self):
-        #audio_aug -> spectrogram -> spectrogram augmentation
-        pass
+                if aug_name is None:
+                    new_filename = f"{base_name}.npy"
+                else:
+                    new_filename = f"{base_name}_{aug_name}.npy"
+                
+                output_path = os.path.join(output_spec_dir, new_filename)
 
-    def generate_augmented_metadata(self):
-        """
-        Creates a single, large metadata file containing entries for the original 
-        audio files under all defined augmentation groups.
-        """
-        
-        input_path = os.path.join(self.input_metadata_path)
-        output_path = os.path.join(self.output_metadata_path, self.output_metadata_filename.replace('.csv', '_audio_augmented.csv'))
+                if not os.path.exists(output_path):
+                    try:
+                        y, sr = librosa.load(audio_path, sr=22050) 
+                        mel = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=512, n_mels=224)
+                        log_mel = librosa.power_to_db(mel, ref=np.max)
 
-        # 1. Load the clean, baseline metadata
-        try:
-            df_master = pd.read_csv(input_path)
-        except FileNotFoundError:
-            print(f"Error: Base metadata file not found at {input_path}")
-            return
+                        target_len = 224
+                        if log_mel.shape[1] > target_len:
+                            log_mel = log_mel[:, :target_len]
+                        elif log_mel.shape[1] < target_len:
+                            pad_width = target_len - log_mel.shape[1]
+                            log_mel = np.pad(log_mel, pad_width=((0, 0), (0, pad_width)), 
+                                                            mode='constant', constant_values=log_mel.min())
 
-        print(f"Loaded master metadata with {len(df_master)} clean files.")
-        
-        # Initialize the final list of entries
-        all_entries = []
+                        if transform is not None:
+                            log_mel_tensor = torch.from_numpy(log_mel)
+                            masked_tensor = transform(log_mel_tensor)
+                            final_array = masked_tensor.numpy()
+                        else:
+                            final_array = log_mel
 
-# Define the list of suffixes to iterate over based on self.aug_type
-        if self.aug_type == "audio":
-            # If self.aug_type is 'audio', the loop runs once with the AUDIO_SUFFIX
-            suffixes_to_process = AUDIO_SUFFIX
-        elif self.aug_type == "spec":
-            # If self.aug_type is 'spec', the loop runs once with the SPEC_SUFFIX
-            suffixes_to_process = SPEC_SUFFIX
+                        np.save(output_path, final_array)
+
+                    except FileNotFoundError:
+                        print(f"Warning: Source audio {audio_path} not found. Skipping.")
+                        continue
+                    except Exception as e:
+                        print(f"Error processing {filename}: {e}")
+                        continue
+
+                new_row = row.copy()
+                new_row['filename'] = new_filename      
+                new_row['spec_augmentation'] = label    
+                
+                new_metadata_entries.append(new_row)
+
+        if new_metadata_entries:
+            df_final = pd.DataFrame(new_metadata_entries)
+            df_final.to_csv(output_meta_path, index=False)
+            print(f"\n Step 2 Complete ({output_subdir}).")
+            print(f"   Metadata saved to: {output_meta_path}")
         else:
-            # Handle the case if aug_type is neither (e.g., 'both' or 'none'), though your logic implies specific flags
-            # We will assume a default to prevent error, or raise an exception
-            print(f"Warning: Unknown aug_type '{self.aug_type}'. Skipping augmented metadata generation.")
-            suffixes_to_process = []
-
-
-        for aug_suffix in tqdm(suffixes_to_process, desc="Generating Augmented Metadata"):
-            df_aug = df_master.copy()
-            
-            # Store the original filename for reference
-            df_aug['source_filename'] = df_master['filename']
-            
-            # Create a NEW, unique filename for this augmented version
-            # The suffix value (e.g., 'audio_only' or 'spec_only') is used here
-            df_aug['filename'] = df_master['filename'].str.replace('.wav', f'_{aug_suffix}.wav', regex=False)
-            
-            # Set the augmentation type column if needed (useful for PyTorch DataLoader lookup)
-            # df_aug['augmentation_type'] = aug_suffix # Uncomment if needed
-            
-            all_entries.append(df_aug)
-
-        # 4. Concatenate all entries (Baseline + the Augmented Sets generated above)
-        # IMPORTANT: If your df_master already includes the baseline, this will be correct.
-        # If df_master only includes the clean metadata, you need to ensure the baseline is added too.
-        df_final_master = pd.concat(all_entries, ignore_index=True)
-
-        # 5. Save the final single, appended blueprint
-        df_final_master.to_csv(output_path, index=False)
-        
-        print("\n--- ✅ Master Augmentation Metadata Blueprint Complete ---")
-        print(f"Total entries created: {len(df_final_master)}")
-        print(f"Final blueprint saved to: {output_path}")
-
-    def run(self):
-        if self.aug_type == "audio":
-            self.generate_augmented_metadata()
-            # self.create_audio_augset()
-        elif self.aug_type == "spectrogram":
-            self.create_spec_augset()
-        elif self.aug_type == "hybrid":
-            self.create_hybrid_augset()
-        else:
-            print(f"Error: Unknown augmentation type '{self.aug_type}'. No action taken.")
-            return
-        
-        
-                
+            print("No entries generated.")
+            return None
