@@ -10,7 +10,7 @@ SAMPLING_RATE = 22050
 HOP_LENGTH = 512 
 files = librosa.util.find_files('data/ESC-50-master/audio', ext=['wav'], recurse=True)
 # --- 2. INPUT FILE PATH ---
-FEATURE_FILE_PATH = r'data\log-mel_spectrograms\audio_aug\1-20133-A-39_rain_bg.npy' 
+FEATURE_FILE_PATH = r'data\log-mel_spectrograms\hybrid_aug\1-20133-A-39_rain_bg_time_mask.npy' 
 
 
 # --- 3. LOAD DATA ---

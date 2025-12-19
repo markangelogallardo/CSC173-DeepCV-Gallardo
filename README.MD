@@ -58,17 +58,40 @@ The
 - Preprocessing: Augmentation, resizing to 126x126 (to be verified) [web:41]
 
 ### Architecture
+MobileNetV3:  
+
+![Model Diagram](images/mobilenetv3.png)
+- Backbone: Mobile Inverted Bottleneck blocks (MBConv) with Squeeze-and-Excitation and Hard-Swish activation.
+- Head: Global Average Pooling, then two Fully Connected layers with Hard-Swish and Dropout activation functions.  
+
+MobileNetV2:  
+![Model Diagram](images/mobilenetv2.png)
+- Backbone: Inverted Residual blocks with linear bottlenecks and ReLU6 activation.
+- Head: 1x1 Convolution, Global Average Pooling, Dropout, and a single Fully Connected layer.  
+
+ShuffleNetV2:
+![Model Diagram](images/shufflenetv2.png)
+- Backbone: Shuffle Units with Channel Shuffle and depthwise separable convolutions.
+- Head: 1x1 Convolution Global Average Pooling, and a single Fully Connected layer.  
+
+EfficientNet:
 ![Model Diagram](images/efficientNet.png)
 - Backbone: Mobile Inverted bottlenecks with Squeeze-and-Excitation
-- Head: Global Average Pooling, 1x1 Convolution, and Fully Connected Layers
-- Hyperparameters: Table below
+- Head: Global Average Pooling, 1x1 Convolution, and Fully Connected Layers  
+
+RegNet:
+![Model Diagram](images/regnet.png)
+- Backbone: Quantized linear stack of Residual blocks with Group Convolutions and Squeeze-and-Excitation.
+- Head: Global Average Pooling, a single Fully Connected layer.
+
+Hyperparameters: Table below for all models
 
 | Parameter | Value |
 |-----------|-------|
-| Batch Size | 16 |
+| Batch Size | 32 |
 | Learning Rate | 0.01 |
-| Epochs | 100 |
-| Optimizer | SGD |
+| Epochs | 50 |
+| Optimizer | Adaptive Moment Estimation (Adam) |
 
 ### Training Code Snippet
 train.py excerpt
@@ -78,7 +101,7 @@ model.train(data='dataset.yaml', epochs=100, imgsz=640)
 
 ## Experiments & Results
 ### Metrics
-| Model | mAP@0.5 | Precision | Recall | Inference Time (ms) |
+| Model | Accuracy | Precision | Recall | F-1 Score |
 |-------|---------|-----------|--------|---------------------|
 | Baseline (YOLOv8n) | 85% | 0.87 | 0.82 | 12 |
 | **Ours (Fine-tuned)** | **92%** | **0.94** | **0.89** | **15** |
