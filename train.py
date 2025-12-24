@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, ConcatDataset # <--- Added ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset 
 from torch.cuda.amp import autocast, GradScaler
 from utils.load_dataset import DataAugmentedESC50Dataset
 from utils.models import get_model
@@ -14,22 +14,14 @@ import pandas as pd
 from datetime import datetime
 from sklearn.metrics import precision_recall_fscore_support
 
-# Ignore all FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# --- Configuration ---
-
-# 1. CONSTANTS FOR CLEAN DATA (Always needed for Validation & Mixing)
 CLEAN_CSV_PATH = "data/metadata/log-mel_spectrograms_no_aug.csv"
 CLEAN_SPEC_DIR = "data/log-mel_spectrograms/no_aug"
 
-# 2. EXPERIMENT SETTINGS
-# Change this name to "Audio_Aug", "Hybrid", etc. to trigger the mixing logic
-DATASET_NAME = "No_Augmentation" 
+DATASET_NAME = "No_Augmentation" #change this to reflect dataset type: "No_Augmentation", "Audio_Augmentation", "Hybrid_Augmentation"
 
-# Point these to your Augmented data when DATASET_NAME != "No_Augmentation"
-# If DATASET_NAME is "No_Augmentation", these should match the CLEAN paths above.
-TYPE = "no"  # Options: "audio_aug", "spec_aug", "hybrid_aug"
+TYPE = "no"  # no, audio, hybrid
 TRAIN_CSV_PATH = f"data/metadata/log-mel_spectrograms_{TYPE}_aug.csv"  
 TRAIN_SPEC_DIR = f"data/log-mel_spectrograms/{TYPE}_aug" 
 
@@ -45,42 +37,32 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
 
-# --- EARLY STOPPING CONFIG ---
 EARLY_STOPPING_PATIENCE = 7   
 EARLY_STOPPING_MIN_DELTA = 0.1 
 
 def train_one_fold(fold_idx, train_folds, val_folds):
     print(f"\n{'='*20} Starting Fold {fold_idx} {'='*20}")
     
-    # --- 1. PREPARE TRAINING DATASET ---
-    # Load the primary training set (either Clean or Augmented based on config)
     primary_train_dataset = DataAugmentedESC50Dataset(
         csv_file=TRAIN_CSV_PATH, root_dir=TRAIN_SPEC_DIR, folds=train_folds
     )
 
     if DATASET_NAME == "No_Augmentation":
-        # Case A: Standard Training (Only Clean)
         print(f"[INFO] Dataset: No_Augmentation. Using single dataset source.")
         final_train_dataset = primary_train_dataset
     else:
-        # Case B: Augmented Training (Mix Clean + Augmented)
         print(f"[INFO] Dataset: {DATASET_NAME}. Combining Augmented + Clean data.")
         
-        # Load the Clean dataset specifically for mixing
         clean_train_dataset = DataAugmentedESC50Dataset(
             csv_file=CLEAN_CSV_PATH, root_dir=CLEAN_SPEC_DIR, folds=train_folds
         )
         
-        # Merge them
         final_train_dataset = ConcatDataset([primary_train_dataset, clean_train_dataset])
 
-    # --- 2. PREPARE VALIDATION DATASET ---
-    # Validation ALWAYS uses the Clean dataset to ensure fair comparison
     val_dataset = DataAugmentedESC50Dataset(
         csv_file=CLEAN_CSV_PATH, root_dir=CLEAN_SPEC_DIR, folds=val_folds
     )
 
-    # --- 3. DATALOADERS ---
     train_loader = DataLoader(
         final_train_dataset, batch_size=BATCH_SIZE, shuffle=True, 
         num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=2
@@ -91,7 +73,6 @@ def train_one_fold(fold_idx, train_folds, val_folds):
         num_workers=2, pin_memory=True, persistent_workers=True
     )
 
-    # 4. Initialize Model
     model = get_model(MODEL_NAME, num_classes=50)
     model = model.to(DEVICE)
 
@@ -102,15 +83,12 @@ def train_one_fold(fold_idx, train_folds, val_folds):
 
     fold_history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
     
-    # Track best metrics for this fold
     best_metrics = {
         'acc': 0.0, 'precision': 0.0, 'recall': 0.0, 'f1': 0.0
     }
     early_stopping_counter = 0
 
-    # 5. Training Loop
     for epoch in range(EPOCHS):
-        # --- TRAIN ---
         model.train()
         running_loss = 0.0
         correct_train = 0
@@ -137,7 +115,6 @@ def train_one_fold(fold_idx, train_folds, val_folds):
         ep_train_loss = running_loss / len(train_loader)
         ep_train_acc = 100 * correct_train / total_train
 
-        # --- VALIDATION ---
         model.eval()
         running_val_loss = 0.0
         correct_val = 0
@@ -165,7 +142,6 @@ def train_one_fold(fold_idx, train_folds, val_folds):
         ep_val_loss = running_val_loss / len(val_loader)
         ep_val_acc = 100 * correct_val / total_val
 
-        # --- METRICS ---
         precision, recall, f1, _ = precision_recall_fscore_support(
             all_targets, all_preds, average='macro', zero_division=0
         )
@@ -179,7 +155,6 @@ def train_one_fold(fold_idx, train_folds, val_folds):
 
         print(f"   Ep {epoch+1}: Acc: {ep_val_acc:.2f}% | F1: {f1:.4f} | Prec: {precision:.4f} | Rec: {recall:.4f}")
 
-        # Checkpointing (Saves best model for THIS fold)
         if ep_val_acc > (best_metrics['acc'] + EARLY_STOPPING_MIN_DELTA):
             best_metrics = {
                 'acc': ep_val_acc,
@@ -188,7 +163,6 @@ def train_one_fold(fold_idx, train_folds, val_folds):
                 'f1': f1 * 100
             }
             early_stopping_counter = 0
-            # Save temporary file for this fold
             temp_path = os.path.join(SAVE_DIR, f"temp_{MODEL_NAME}_{DATASET_NAME}_fold{fold_idx}.pth")
             torch.save(model.state_dict(), temp_path)
         else:
@@ -233,7 +207,6 @@ def run_cross_validation():
         all_folds_history.append(history)
         fold_results.append(best_metrics)
     
-    # --- AGGREGATE RESULTS ---
     accs = [r['acc'] for r in fold_results]
     precs = [r['precision'] for r in fold_results]
     recs = [r['recall'] for r in fold_results]
@@ -255,7 +228,6 @@ def run_cross_validation():
     print(f"AVG   {avg_acc:.2f}%   {np.mean(f1s):.2f}%   {np.mean(precs):.2f}%   {np.mean(recs):.2f}%")
     print("="*40)
 
-    # --- MODEL SELECTION & CLEANUP ---
     best_fold_idx = np.argmax(accs) + 1 
     best_fold_acc = accs[best_fold_idx - 1]
     

@@ -8,9 +8,6 @@ RAIN_NOISE_PATH = r"data\bg_noise\rain5s.wav"
 CRICKET_NOISE_PATH = r"data\bg_noise\crickets5s.wav"
 SAMPLE_RATE = 22050
 
-N_MELS = 128 
-HOP_LENGTH = 512 
-MEL_SPEC_ARRAY_PATH = r"data\mel_log-mel spectrograms"
 
 
 if __name__ == "__main__":
